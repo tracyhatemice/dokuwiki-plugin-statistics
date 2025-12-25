@@ -120,18 +120,18 @@ class helper_plugin_statistics extends Plugin
     {
         $http = $this->httpClient ?: new DokuHTTPClient();
         $http->timeout = 7;
-        $json = $http->get('http://ip-api.com/json/' . $ip); // yes, it's HTTP only
+        $json = $http->get('http://geoip:10069/?lookup=city&ip=' . $ip); 
 
         if (!$json) {
-            throw new IpResolverException('Failed talk to ip-api.com.');
+            throw new IpResolverException('Failed talk to geoip.');
         }
         try {
             $data = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
         } catch (\JsonException $e) {
-            throw new IpResolverException('Failed to decode JSON from ip-api.com.', $e->getTrace(), 0, $e);
+            throw new IpResolverException('Failed to decode JSON from geoip.', $e->getTrace(), 0, $e);
         }
         if (!isset($data['status'])) {
-            throw new IpResolverException('Invalid ip-api.com result for' . $ip, $data);
+            throw new IpResolverException('Invalid geoip result for' . $ip, $data);
         }
         // we do not check for 'success' status here. when the API can't resolve the IP we still log it
         // without location data, so we won't re-query it in the next 30 days.
