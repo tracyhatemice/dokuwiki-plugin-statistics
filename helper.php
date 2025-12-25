@@ -130,7 +130,7 @@ class helper_plugin_statistics extends Plugin
         } catch (\JsonException $e) {
             throw new IpResolverException('Failed to decode JSON from geoip.', $e->getTrace(), 0, $e);
         }
-        if (!isset($data['status'])) {
+        if (!isset($data['country'])) {
             throw new IpResolverException('Invalid geoip result for' . $ip, $data);
         }
         // we do not check for 'success' status here. when the API can't resolve the IP we still log it
