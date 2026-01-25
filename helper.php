@@ -120,7 +120,7 @@ class helper_plugin_statistics extends Plugin
     {
         $http = $this->httpClient ?: new DokuHTTPClient();
         $http->timeout = 7;
-        $json = $http->get('http://geoip:10069/?lookup=city&ip=' . $ip); 
+        $json = $http->get('http://geoip:10069/lookup/city?ip=' . $ip); 
 
         if (!$json) {
             throw new IpResolverException('Failed talk to geoip.');
