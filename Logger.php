@@ -366,7 +366,7 @@ class Logger
             $hash,
             $data['Country']['Names']['en'] ?? $data['Country']['Code'] ?? '',
             $data['Country']['Code'] ?? '',
-            $data['City']['Names']['en'] ?? $data['City']['Code'] ?? '',
+            $data['City']['Names']['en'] ?? '',
             $host
         );
 
