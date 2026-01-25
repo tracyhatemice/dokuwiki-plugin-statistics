@@ -364,9 +364,9 @@ class Logger
                     ?, ?, ?, ?, ?, CURRENT_TIMESTAMP
                  )',
             $hash,
-            $data['country']['names']['en'] ?? '',
-            $data['country']['iso_code'] ?? '',
-            $data['city']['names']['en'] ?? '',
+            $data['Country']['Code'] ?? '',
+            $data['Country']['Code'] ?? '',
+            $data['City']['Code'] ?? '',
             $host
         );
 
