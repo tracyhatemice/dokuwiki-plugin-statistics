@@ -330,7 +330,8 @@ class Logger
             $host = '';
         } else {
             $hash = $ip;
-            $host = gethostbyaddr($ip);
+            $host = ''; // reverse DNS disabled - gethostbyaddr() times out (~8s) on IPv6 without PTR records
+
         }
 
         if ($this->hlp->getConf('nolocation')) {
