@@ -120,6 +120,7 @@ class helper_plugin_statistics extends Plugin
     {
         $http = $this->httpClient ?: new DokuHTTPClient();
         $http->timeout = 7;
+
         $json = $http->get('http://ip-api.com/json/' . $ip); // yes, it's HTTP only
 
         if (!$json) {
