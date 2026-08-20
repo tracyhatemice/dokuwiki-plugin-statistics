@@ -2,7 +2,7 @@
 base   statistics
 author Andreas Gohr
 email  dokuwiki@cosmocode.de
-date   2026-06-04
+date   2026-08-20
 name   Statistics Plugin
 desc   Gather usage/view statistics
 url    https://github.com/tracyhatemice/dokuwiki-plugin-statistics/

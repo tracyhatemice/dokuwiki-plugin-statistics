@@ -17,6 +17,8 @@ class Query
     protected string $to;
     protected string $limit = '';
     protected string $tz = 'localtime';
+    /** @var string modifier that converts a local time back to how dt is stored (inverse of $tz) */
+    protected string $tzInv = 'utc';
 
     /**
      * @param helper_plugin_statistics $hlp
@@ -68,6 +70,7 @@ class Query
         try {
             $dateTime = new \DateTime($this->from, new \DateTimeZone($timezoneId));
             $this->tz = $dateTime->format('P');
+            $this->tzInv = ($this->tz[0] === '-' ? '+' : '-') . substr($this->tz, 1);
         } catch (\Exception $e) {
             Logger::error($e->getMessage());
         }
@@ -120,10 +123,10 @@ class Query
                   FROM pageviews as P
                   LEFT JOIN referers as R ON P.ref_id = R.id
                   LEFT JOIN sessions as S ON P.session = S.session
-                 WHERE DATETIME(P.dt, ?) >= ? AND DATETIME(P.dt, ?) <= ?
+                 WHERE P.dt >= DATETIME(?, ?) AND P.dt <= DATETIME(?, ?)
                    AND S.ua_type = 'browser'
               GROUP BY ref_type";
-        $result = $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        $result = $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
 
         foreach ($result as $row) {
             if ($row['ref_type'] == 'search') {
@@ -151,9 +154,9 @@ class Query
                        DATETIME(MAX(P.dt), ?) as last
                   FROM pageviews as P
                   LEFT JOIN sessions as S ON P.session = S.session
-                 WHERE DATETIME(P.dt, ?) >= ? AND DATETIME(P.dt, ?) <= ?
+                 WHERE P.dt >= DATETIME(?, ?) AND P.dt <= DATETIME(?, ?)
                    AND S.ua_type = 'browser'";
-        $result = $this->db->queryRecord($sql, [$this->tz, $this->tz, $this->from, $this->tz, $this->to]);
+        $result = $this->db->queryRecord($sql, [$this->tz, $this->from, $this->tzInv, $this->to, $this->tzInv]);
 
         $data['users'] = $result['users'];
         $data['sessions'] = $result['sessions'];
@@ -168,12 +171,12 @@ class Query
                           SELECT P.session, COUNT(*) as views
                             FROM pageviews as P
                             LEFT JOIN sessions as S ON P.session = S.session
-                           WHERE DATETIME(P.dt, ?) >= ? AND DATETIME(P.dt, ?) <= ?
+                           WHERE P.dt >= DATETIME(?, ?) AND P.dt <= DATETIME(?, ?)
                              AND S.ua_type = 'browser'
                         GROUP BY P.session
                           HAVING views = 1
                       )";
-            $count = $this->db->queryValue($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+            $count = $this->db->queryValue($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
             $data['bouncerate'] = $count * 100 / $data['sessions'];
             $data['newvisitors'] = $count * 100 / $data['sessions'];
         }
@@ -184,33 +187,33 @@ class Query
                       SELECT P.session, COUNT(*) as views
                         FROM pageviews as P
                         LEFT JOIN sessions as S ON P.session = S.session
-                       WHERE DATETIME(P.dt, ?) >= ? AND DATETIME(P.dt, ?) <= ?
+                       WHERE P.dt >= DATETIME(?, ?) AND P.dt <= DATETIME(?, ?)
                          AND S.ua_type = 'browser'
                     GROUP BY P.session
                   )";
-        $data['avgpages'] = $this->db->queryValue($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        $data['avgpages'] = $this->db->queryValue($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
 
         // average time spent on the site
         $sql = "SELECT AVG((unixepoch(end) - unixepoch(dt)) / 60) as time
                   FROM sessions as S
                  WHERE S.dt != S.end
-                   AND DATETIME(S.dt, ?) >= ? AND DATETIME(S.dt, ?) <= ?
+                   AND S.dt >= DATETIME(?, ?) AND S.dt <= DATETIME(?, ?)
                    AND S.ua_type = 'browser'";
-        $data['timespent'] = $this->db->queryValue($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        $data['timespent'] = $this->db->queryValue($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
 
         // logins
         $sql = "SELECT COUNT(*) as logins
                   FROM logins as A
-                 WHERE DATETIME(A.dt, ?) >= ? AND DATETIME(A.dt, ?) <= ?
+                 WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?)
                    AND (type = 'l' OR type = 'p')";
-        $data['logins'] = $this->db->queryValue($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        $data['logins'] = $this->db->queryValue($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
 
         // registrations
         $sql = "SELECT COUNT(*) as registrations
                   FROM logins as A
-                 WHERE DATETIME(A.dt, ?) >= ? AND DATETIME(A.dt, ?) <= ?
+                 WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?)
                    AND type = 'C'";
-        $data['registrations'] = $this->db->queryValue($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        $data['registrations'] = $this->db->queryValue($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
 
         // current users (based on recent sessions)
         $sql = "SELECT COUNT(DISTINCT uid) as current
@@ -245,11 +248,11 @@ class Query
                        COUNT(DISTINCT S.uid) as visitors
                   FROM pageviews as P
                   LEFT JOIN sessions as S ON P.session = S.session
-                 WHERE DATETIME(P.dt, ?) >= ? AND DATETIME(P.dt, ?) <= ?
+                 WHERE P.dt >= DATETIME(?, ?) AND P.dt <= DATETIME(?, ?)
                    AND S.ua_type = 'browser'
               GROUP BY $TIME
               ORDER BY time";
-        $result = $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        $result = $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
         foreach ($result as $row) {
             $data[$row['time']]['sessions'] = $row['sessions'];
             $data[$row['time']]['pageviews'] = $row['pageviews'];
@@ -277,11 +280,11 @@ class Query
             $sql = "SELECT $TIME as time,
                            COUNT(*) as cnt
                       FROM edits as A
-                     WHERE DATETIME(A.dt, ?) >= ? AND DATETIME(A.dt, ?) <= ?
+                     WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?)
                        AND type = '$type'
                   GROUP BY $TIME
                   ORDER BY time";
-            $result = $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+            $result = $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
             foreach ($result as $row) {
                 $data[$row['time']][$type] = $row['cnt'];
             }
@@ -313,12 +316,12 @@ class Query
         $sql = "SELECT $TIME as time,
                        AVG(value)/$mod as cnt
                   FROM history as A
-                 WHERE DATETIME(A.dt, ?) >= ? AND DATETIME(A.dt, ?) <= ?
+                 WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?)
                    AND info = ?
                   GROUP BY $TIME
                   ORDER BY $TIME";
 
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to, $info]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv, $info]);
     }
 
     /**
@@ -329,13 +332,13 @@ class Query
         $sql = "SELECT COUNT(*) as cnt, R.engine
                   FROM pageviews as P,
                        referers as R
-                 WHERE DATETIME(P.dt, ?) >= ? AND DATETIME(P.dt, ?) <= ?
+                 WHERE P.dt >= DATETIME(?, ?) AND P.dt <= DATETIME(?, ?)
                    AND P.ref_id = R.id
                    AND R.engine != ''
               GROUP BY R.engine
               ORDER BY cnt DESC, R.engine" .
             $this->limit;
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
     }
 
     /**
@@ -345,11 +348,11 @@ class Query
     {
         $sql = "SELECT COUNT(*) as cnt, query, query as ilookup
                   FROM search
-                 WHERE DATETIME(dt, ?) >= ? AND DATETIME(dt, ?) <= ?
+                 WHERE dt >= DATETIME(?, ?) AND dt <= DATETIME(?, ?)
               GROUP BY query
               ORDER BY cnt DESC, query" .
             $this->limit;
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
     }
 
     /**
@@ -360,12 +363,12 @@ class Query
         $sql = "SELECT COUNT(*) as cnt, SW.word, SW.word as ilookup
                   FROM search as S,
                        searchwords as SW
-                 WHERE DATETIME(S.dt, ?) >= ? AND DATETIME(S.dt, ?) <= ?
+                 WHERE S.dt >= DATETIME(?, ?) AND S.dt <= DATETIME(?, ?)
                    AND S.id = SW.sid
               GROUP BY SW.word
               ORDER BY cnt DESC, SW.word" .
             $this->limit;
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
     }
 
     /**
@@ -375,11 +378,11 @@ class Query
     {
         $sql = "SELECT COUNT(*) as cnt, link as url
                   FROM outlinks as A
-                 WHERE DATETIME(A.dt, ?) >= ? AND DATETIME(A.dt, ?) <= ?
+                 WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?)
               GROUP BY link
               ORDER BY cnt DESC, link" .
             $this->limit;
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
     }
 
     /**
@@ -390,13 +393,13 @@ class Query
         $sql = "SELECT COUNT(*) as cnt, P.page
                   FROM pageviews as P,
                        sessions as S
-                 WHERE DATETIME(P.dt, ?) >= ? AND DATETIME(P.dt, ?) <= ?
+                 WHERE P.dt >= DATETIME(?, ?) AND P.dt <= DATETIME(?, ?)
                    AND P.session = S.session
                    AND S.ua_type = 'browser'
               GROUP BY P.page
               ORDER BY cnt DESC, P.page" .
             $this->limit;
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
     }
 
     /**
@@ -406,11 +409,11 @@ class Query
     {
         $sql = "SELECT COUNT(*) as cnt, page
                   FROM edits as A
-                 WHERE DATETIME(A.dt, ?) >= ? AND DATETIME(A.dt, ?) <= ?
+                 WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?)
               GROUP BY page
               ORDER BY cnt DESC, page" .
             $this->limit;
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
     }
 
     /**
@@ -420,12 +423,12 @@ class Query
     {
         $sql = "SELECT COUNT(*) as cnt, media, SUM(size) as filesize
                   FROM media as A
-                 WHERE DATETIME(A.dt, ?) >= ? AND DATETIME(A.dt, ?) <= ?
+                 WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?)
                    AND mime1 = 'image'
               GROUP BY media
               ORDER BY cnt DESC, media" .
             $this->limit;
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
     }
 
     /**
@@ -435,9 +438,9 @@ class Query
     {
         $sql = "SELECT COUNT(*) as cnt, SUM(size) as filesize
                   FROM media as A
-                 WHERE DATETIME(A.dt, ?) >= ? AND DATETIME(A.dt, ?) <= ?
+                 WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?)
                    AND mime1 = 'image'";
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
     }
 
     /**
@@ -447,12 +450,12 @@ class Query
     {
         $sql = "SELECT COUNT(*) as cnt, media, SUM(size) as filesize
                   FROM media as A
-                 WHERE DATETIME(A.dt, ?) >= ? AND DATETIME(A.dt, ?) <= ?
+                 WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?)
                    AND mime1 != 'image'
               GROUP BY media
               ORDER BY cnt DESC, media" .
             $this->limit;
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
     }
 
     /**
@@ -462,9 +465,9 @@ class Query
     {
         $sql = "SELECT COUNT(*) as cnt, SUM(size) as filesize
                   FROM media as A
-                 WHERE DATETIME(A.dt, ?) >= ? AND DATETIME(A.dt, ?) <= ?
+                 WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?)
                    AND mime1 != 'image'";
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
     }
 
     /**
@@ -476,7 +479,7 @@ class Query
                   FROM pageviews as P
                   LEFT JOIN sessions as S ON P.session = S.session
                   LEFT JOIN referers as R ON P.ref_id = R.id
-                 WHERE DATETIME(P.dt, ?) >= ? AND DATETIME(P.dt, ?) <= ?
+                 WHERE P.dt >= DATETIME(?, ?) AND P.dt <= DATETIME(?, ?)
                    AND S.ua_type = 'browser'
                    AND R.url IS NOT NULL
                    AND R.url != ''
@@ -484,7 +487,7 @@ class Query
               GROUP BY R.url
               ORDER BY cnt DESC, R.url" .
             $this->limit;
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
     }
 
     /**
@@ -496,16 +499,16 @@ class Query
                   FROM pageviews as P
                   LEFT JOIN sessions as S ON P.session = S.session
                   LEFT JOIN referers as R ON P.ref_id = R.id
-                 WHERE DATETIME(P.dt, ?) >= ? AND DATETIME(P.dt, ?) <= ?
+                 WHERE P.dt >= DATETIME(?, ?) AND P.dt <= DATETIME(?, ?)
                    AND S.ua_type = 'browser'
                    AND R.url IS NOT NULL
                    AND R.url != ''
                    AND R.engine IS NULL
-                   AND DATETIME(R.dt, ?) >= ?
+                   AND R.dt >= DATETIME(?, ?)
               GROUP BY R.url
               ORDER BY cnt DESC, R.url" .
             $this->limit;
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to, $this->tz, $this->from]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv, $this->from, $this->tzInv]);
     }
 
     /**
@@ -516,12 +519,12 @@ class Query
         $sql = "SELECT COUNT(*) as cnt, C.campaign
                   FROM campaigns as C,
                        sessions as S
-                 WHERE DATETIME(S.dt, ?) >= ? AND DATETIME(S.dt, ?) <= ?
+                 WHERE S.dt >= DATETIME(?, ?) AND S.dt <= DATETIME(?, ?)
                    AND S.session = C.session
               GROUP BY C.campaign
               ORDER BY cnt DESC, C.campaign" .
             $this->limit;
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
     }
 
     /**
@@ -532,13 +535,13 @@ class Query
         $sql = "SELECT COUNT(*) as cnt, C.campaign || ' ' || C.source AS campaign
                   FROM campaigns as C,
                        sessions as S
-                 WHERE DATETIME(S.dt, ?) >= ? AND DATETIME(S.dt, ?) <= ?
+                 WHERE S.dt >= DATETIME(?, ?) AND S.dt <= DATETIME(?, ?)
                    AND S.session = C.session
                    AND C.source IS NOT NULL
               GROUP BY C.campaign, C.source
               ORDER BY cnt DESC, C.campaign" .
             $this->limit;
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
     }
 
     /**
@@ -549,13 +552,13 @@ class Query
         $sql = "SELECT COUNT(*) as cnt, C.campaign || ' ' || C.medium AS campaign
                   FROM campaigns as C,
                        sessions as S
-                 WHERE DATETIME(S.dt, ?) >= ? AND DATETIME(S.dt, ?) <= ?
+                 WHERE S.dt >= DATETIME(?, ?) AND S.dt <= DATETIME(?, ?)
                    AND S.session = C.session
                    AND C.medium IS NOT NULL
               GROUP BY C.campaign, C.medium
               ORDER BY cnt DESC, C.campaign" .
             $this->limit;
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
     }
 
 
@@ -567,13 +570,13 @@ class Query
         $sql = "SELECT COUNT(DISTINCT P.session) as cnt, I.country
                   FROM pageviews as P,
                        iplocation as I
-                 WHERE DATETIME(P.dt, ?) >= ? AND DATETIME(P.dt, ?) <= ?
+                 WHERE P.dt >= DATETIME(?, ?) AND P.dt <= DATETIME(?, ?)
                    AND P.ip = I.ip
                    AND I.country != ''
               GROUP BY I.code
               ORDER BY cnt DESC, I.country" .
             $this->limit;
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
     }
 
     /**
@@ -592,12 +595,12 @@ class Query
 
         $sql = "SELECT COUNT(DISTINCT S.session) as cnt, $sel
                   FROM sessions as S
-                 WHERE DATETIME(S.dt, ?) >= ? AND DATETIME(S.dt, ?) <= ?
+                 WHERE S.dt >= DATETIME(?, ?) AND S.dt <= DATETIME(?, ?)
                    AND S.ua_type = 'browser'
               GROUP BY $grp
               ORDER BY cnt DESC, S.ua_info" .
             $this->limit;
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
     }
 
     /**
@@ -607,12 +610,12 @@ class Query
     {
         $sql = "SELECT COUNT(DISTINCT S.session) as cnt, S.os
                   FROM sessions as S
-                 WHERE DATETIME(S.dt, ?) >= ? AND DATETIME(S.dt, ?) <= ?
+                 WHERE S.dt >= DATETIME(?, ?) AND S.dt <= DATETIME(?, ?)
                    AND S.ua_type = 'browser'
               GROUP BY S.os
               ORDER BY cnt DESC, S.os" .
             $this->limit;
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
     }
 
     /**
@@ -624,7 +627,7 @@ class Query
                   FROM pageviews as P,
                        sessions as S,
                        users as U
-                 WHERE DATETIME(P.dt, ?) >= ? AND DATETIME(P.dt, ?) <= ?
+                 WHERE P.dt >= DATETIME(?, ?) AND P.dt <= DATETIME(?, ?)
                    AND P.session = S.session
                    AND S.user = U.user
                    AND S.ua_type = 'browser'
@@ -632,7 +635,7 @@ class Query
               GROUP BY U.domain
               ORDER BY cnt DESC, U.domain" .
             $this->limit;
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
     }
 
     /**
@@ -643,14 +646,14 @@ class Query
         $sql = "SELECT COUNT(*) as cnt, S.user
                   FROM pageviews as P,
                        sessions as S
-                 WHERE DATETIME(P.dt, ?) >= ? AND DATETIME(P.dt, ?) <= ?
+                 WHERE P.dt >= DATETIME(?, ?) AND P.dt <= DATETIME(?, ?)
                    AND P.session = S.session
                    AND S.ua_type = 'browser'
                    AND S.user IS NOT NULL
               GROUP BY S.user
               ORDER BY cnt DESC, S.user" .
             $this->limit;
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
     }
 
     /**
@@ -661,13 +664,13 @@ class Query
         $sql = "SELECT COUNT(*) as cnt, user
                   FROM edits as E,
                        sessions as S
-                 WHERE DATETIME(E.dt, ?) >= ? AND DATETIME(E.dt, ?) <= ?
+                 WHERE E.dt >= DATETIME(?, ?) AND E.dt <= DATETIME(?, ?)
                    AND E.session = S.session
                    AND S.user IS NOT NULL
               GROUP BY user
               ORDER BY cnt DESC, user" .
             $this->limit;
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
     }
 
     /**
@@ -679,14 +682,14 @@ class Query
                   FROM pageviews as P,
                        sessions as S,
                        groups as G
-                 WHERE DATETIME(P.dt, ?) >= ? AND DATETIME(P.dt, ?) <= ?
+                 WHERE P.dt >= DATETIME(?, ?) AND P.dt <= DATETIME(?, ?)
                    AND P.session = S.session
                    AND S.user = G.user
                    AND S.ua_type = 'browser'
               GROUP BY G.`group`
               ORDER BY cnt DESC, G.`group`" .
             $this->limit;
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
     }
 
     /**
@@ -698,13 +701,13 @@ class Query
                   FROM edits as E,
                        sessions as S,
                        groups as G
-                 WHERE DATETIME(E.dt, ?) >= ? AND DATETIME(E.dt, ?) <= ?
+                 WHERE E.dt >= DATETIME(?, ?) AND E.dt <= DATETIME(?, ?)
                    AND E.session = S.session
                    AND S.user = G.user
               GROUP BY G.`group`
               ORDER BY cnt DESC, G.`group`" .
             $this->limit;
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
     }
 
 
@@ -721,7 +724,7 @@ class Query
                        CAST(ROUND(P.screen_y/100)*100 AS int) as resolution
                   FROM pageviews as P,
                        sessions as S
-                 WHERE DATETIME(P.dt, ?) >= ? AND DATETIME(P.dt, ?) <= ?
+                 WHERE P.dt >= DATETIME(?, ?) AND P.dt <= DATETIME(?, ?)
                    AND P.session = S.session
                    AND S.ua_type = 'browser'
                    AND P.screen_x != 0
@@ -729,7 +732,7 @@ class Query
               GROUP BY resolution
               ORDER BY cnt DESC" .
             $this->limit;
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
     }
 
     /**
@@ -745,7 +748,7 @@ class Query
                        CAST(ROUND(P.view_y/100)*100 AS int) as resolution
                   FROM pageviews as P,
                        sessions as S
-                 WHERE DATETIME(P.dt, ?) >= ? AND DATETIME(P.dt, ?) <= ?
+                 WHERE P.dt >= DATETIME(?, ?) AND P.dt <= DATETIME(?, ?)
                    AND P.session = S.session
                    AND S.ua_type = 'browser'
                    AND P.view_x != 0
@@ -754,7 +757,7 @@ class Query
               ORDER BY cnt DESC" .
             $this->limit;
 
-        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tz, $this->to]);
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
     }
 
     /**
