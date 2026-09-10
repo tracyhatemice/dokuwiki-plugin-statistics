@@ -22,6 +22,12 @@ class admin_plugin_statistics extends AdminPlugin
     /** @var int Offset to use when displaying paged data */
     protected $start = 0;
 
+    /** @var int rows per page on the audit log */
+    protected const AUDIT_PAGE = 50;
+
+    /** @var array audit log filters: facility, user, action, q */
+    protected $filters = ['facility' => '', 'user' => '', 'action' => '', 'q' => ''];
+
     /** @var helper_plugin_statistics */
     protected $hlp;
 
@@ -66,7 +72,12 @@ class admin_plugin_statistics extends AdminPlugin
             'countries' => 'printTableAndPieGraph',
             'resolution' => 'printTableAndScatterGraph',
             'viewport' => 'printTableAndScatterGraph',
-        ]
+        ],
+        'audit' => [
+            'auditlog' => 'printAuditLog',
+            'auditactions' => 'printTableAndPieGraph',
+            'auditusers' => 'printTableAndPieGraph',
+        ],
     ];
 
     /** @var array keeps a list of all real content pages, generated from above array */
@@ -85,6 +96,10 @@ class admin_plugin_statistics extends AdminPlugin
         }
         if ($this->getConf('nousers')) {
             unset($this->pages['users']);
+        }
+        // audit pages are for superusers only, and only when auditing is configured
+        if (!auth_isadmin() || trim((string)$this->getConf('audit_facilities')) === '') {
+            unset($this->pages['audit']);
         }
 
         // build a list of pages
@@ -123,6 +138,12 @@ class admin_plugin_statistics extends AdminPlugin
         if (!isset($this->allowedpages[$this->opt])) $this->opt = 'dashboard';
 
         $this->start = $INPUT->int('s');
+        $this->filters = [
+            'facility' => $INPUT->str('af'),
+            'user' => $INPUT->str('au'),
+            'action' => $INPUT->str('aa'),
+            'q' => $INPUT->str('aq'),
+        ];
         $this->setTimeframe($INPUT->str('f', date('Y-m-d')), $INPUT->str('t', date('Y-m-d')));
     }
 
@@ -137,6 +158,27 @@ class admin_plugin_statistics extends AdminPlugin
         $this->hlp->getQuery()->setTimeFrame($from, $to);
         $this->from = $from;
         $this->to = $to;
+    }
+
+    /**
+     * URL parameters that identify the current view: page, timeframe and any audit filters
+     */
+    protected function urlParams(): array
+    {
+        $params = [
+            'do' => 'admin',
+            'page' => 'statistics',
+            'opt' => $this->opt,
+            'f' => $this->from,
+            't' => $this->to,
+        ];
+        if ($this->opt === 'auditlog') {
+            $names = ['facility' => 'af', 'user' => 'au', 'action' => 'aa', 'q' => 'aq'];
+            foreach ($names as $key => $param) {
+                if ($this->filters[$key] !== '') $params[$param] = $this->filters[$key];
+            }
+        }
+        return $params;
     }
 
     /**
@@ -220,13 +262,7 @@ class admin_plugin_statistics extends AdminPlugin
      */
     public function html_pager($limit, $next)
     {
-        $params = [
-            'do' => 'admin',
-            'page' => 'statistics',
-            'opt' => $this->opt,
-            'f' => $this->from,
-            't' => $this->to,
-        ];
+        $params = $this->urlParams();
 
         echo '<div class="plg_stats_pager">';
         if ($this->start > 0) {
@@ -260,9 +296,10 @@ class admin_plugin_statistics extends AdminPlugin
         echo '<span>' . $this->getLang('time_select') . '</span> ';
 
         echo '<form action="' . DOKU_SCRIPT . '" method="get">';
-        echo '<input type="hidden" name="do" value="admin" />';
-        echo '<input type="hidden" name="page" value="statistics" />';
-        echo '<input type="hidden" name="opt" value="' . $this->opt . '" />';
+        foreach ($this->urlParams() as $name => $value) {
+            if ($name === 'f' || $name === 't') continue;
+            echo '<input type="hidden" name="' . hsc($name) . '" value="' . hsc($value) . '" />';
+        }
         echo '<input type="date" name="f" value="' . $this->from . '" class="edit" />';
         echo '<input type="date" name="t" value="' . $this->to . '" class="edit" />';
         echo '<input type="submit" value="go" class="button" />';
@@ -273,13 +310,7 @@ class admin_plugin_statistics extends AdminPlugin
             // today is included only today
             $to = $name == 'today' ? $quick['today'] : $quick['last1'];
 
-            $url = buildURLparams([
-                'do' => 'admin',
-                'page' => 'statistics',
-                'opt' => $this->opt,
-                'f' => $time,
-                't' => $to,
-            ]);
+            $url = buildURLparams(array_merge($this->urlParams(), ['f' => $time, 't' => $to]));
 
             echo '<li>';
             echo '<a href="?' . $url . '">';
@@ -428,6 +459,126 @@ class admin_plugin_statistics extends AdminPlugin
 
         $result = $this->hlp->getQuery()->referer();
         $this->html_resulttable($result, '', 150);
+    }
+
+    /**
+     * The filterable audit event browser
+     */
+    public function printAuditLog()
+    {
+        echo '<p>' . $this->getLang('intro_auditlog') . '</p>';
+        $this->html_auditfilter();
+
+        $query = $this->hlp->getQuery();
+        $query->setPagination($this->start, self::AUDIT_PAGE);
+        $result = $query->auditlog($this->filters);
+
+        $this->html_audittable(array_slice($result, 0, self::AUDIT_PAGE));
+        $this->html_pager(self::AUDIT_PAGE, count($result) > self::AUDIT_PAGE);
+    }
+
+    /**
+     * Filter form for the audit log
+     */
+    protected function html_auditfilter()
+    {
+        $facilities = $this->hlp->getQuery()->auditfacilities();
+
+        echo '<div class="plg_stats_auditfilter">';
+        echo '<form action="' . DOKU_SCRIPT . '" method="get">';
+        echo '<input type="hidden" name="do" value="admin" />';
+        echo '<input type="hidden" name="page" value="statistics" />';
+        echo '<input type="hidden" name="opt" value="auditlog" />';
+        echo '<input type="hidden" name="f" value="' . hsc($this->from) . '" />';
+        echo '<input type="hidden" name="t" value="' . hsc($this->to) . '" />';
+
+        echo '<label>' . $this->getLang('audit_filter_facility') . ' ';
+        echo '<select name="af">';
+        echo '<option value="">' . $this->getLang('audit_filter_any') . '</option>';
+        foreach ($facilities as $facility) {
+            $selected = $facility === $this->filters['facility'] ? ' selected="selected"' : '';
+            echo '<option value="' . hsc($facility) . '"' . $selected . '>' . hsc($facility) . '</option>';
+        }
+        echo '</select></label>';
+
+        foreach (['user' => 'au', 'action' => 'aa', 'q' => 'aq'] as $key => $param) {
+            echo '<label>' . $this->getLang('audit_filter_' . $key) . ' ';
+            echo '<input type="text" name="' . $param . '" value="' . hsc($this->filters[$key]) . '" class="edit" />';
+            echo '</label>';
+        }
+
+        echo '<input type="submit" value="' . $this->getLang('audit_filter_go') . '" class="button" />';
+        echo '</form>';
+        echo '</div>';
+    }
+
+    /**
+     * Render audit rows
+     *
+     * @param array $rows as returned by Query::auditlog()
+     */
+    protected function html_audittable(array $rows)
+    {
+        if (!$rows) {
+            echo '<p class="plg_stats_audit_empty">' . $this->getLang('audit_noentries') . '</p>';
+            return;
+        }
+
+        $columns = ['time', 'facility', 'user', 'ip', 'action', 'subject', 'message', 'details'];
+
+        echo '<table class="inline plg_stats_audit">';
+        echo '<tr>';
+        foreach ($columns as $column) {
+            echo '<th>' . $this->getLang('audit_col_' . $column) . '</th>';
+        }
+        echo '</tr>';
+
+        foreach ($rows as $row) {
+            echo '<tr>';
+            foreach ($columns as $column) {
+                echo '<td class="plg_stats_X' . $column . '">';
+                if ($column === 'subject') {
+                    echo $this->html_auditsubject($row);
+                } elseif ($column === 'details') {
+                    echo $this->html_auditdetails($row['details']);
+                } else {
+                    echo hsc($row[$column]);
+                }
+                echo '</td>';
+            }
+            echo '</tr>';
+        }
+        echo '</table>';
+    }
+
+    /**
+     * The subject cell: linked for wiki pages and media logged by the logged plugin
+     */
+    protected function html_auditsubject(array $row): string
+    {
+        $subject = $row['subject'];
+        if ($subject === '') return '';
+        if ($row['facility'] !== 'logged') return hsc($subject);
+
+        if ($row['action'] === 'media') {
+            return '<a href="' . ml($subject) . '" class="wikilink1">' . hsc($subject) . '</a>';
+        }
+        return '<a href="' . wl($subject) . '" class="wikilink1">' . hsc($subject) . '</a>';
+    }
+
+    /**
+     * The details cell: collapsed, pretty printed when it is JSON
+     */
+    protected function html_auditdetails(string $details): string
+    {
+        if ($details === '') return '';
+
+        $decoded = json_decode($details, true);
+        if (is_array($decoded)) {
+            $details = json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        }
+
+        return '<details><summary>&hellip;</summary><pre>' . hsc($details) . '</pre></details>';
     }
 
     // endregion

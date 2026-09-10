@@ -4,6 +4,7 @@ use dokuwiki\ErrorHandler;
 use dokuwiki\Extension\Plugin;
 use dokuwiki\HTTP\DokuHTTPClient;
 use dokuwiki\plugin\sqlite\SQLiteDB;
+use dokuwiki\plugin\statistics\AuditLog;
 use dokuwiki\plugin\statistics\DummyLogger;
 use dokuwiki\plugin\statistics\IgnoreException;
 use dokuwiki\plugin\statistics\IpResolverException;
@@ -22,6 +23,7 @@ class helper_plugin_statistics extends Plugin
     protected ?Query $oQuery = null;
     protected ?StatisticsGraph $oGraph = null;
     protected ?SQLiteDB $db = null;
+    protected ?AuditLog $oAuditLog = null;
     public ?DokuHTTPClient $httpClient = null; // public for testing purposes
 
     /**
@@ -71,6 +73,19 @@ class helper_plugin_statistics extends Plugin
 
             return new DummyLogger();
         }
+    }
+
+    /**
+     * Return the audit log writer
+     *
+     * @throws Exception when SQLite initialization failed
+     */
+    public function getAuditLog(): AuditLog
+    {
+        if (is_null($this->oAuditLog)) {
+            $this->oAuditLog = new AuditLog($this);
+        }
+        return $this->oAuditLog;
     }
 
     /**

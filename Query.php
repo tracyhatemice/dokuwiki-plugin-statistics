@@ -775,4 +775,88 @@ class Query
 
         return $this->db->queryAll($sql);
     }
+    // region audit
+
+    /**
+     * Audit events, newest first
+     *
+     * @param array $filters optional 'facility', 'user', 'action' (exact) and 'q' (substring in subject or message)
+     */
+    public function auditlog(array $filters = []): array
+    {
+        $where = ['A.dt >= DATETIME(?, ?)', 'A.dt <= DATETIME(?, ?)'];
+        $params = [$this->tz, $this->from, $this->tzInv, $this->to, $this->tzInv];
+
+        foreach (['facility', 'user', 'action'] as $field) {
+            if (isset($filters[$field]) && $filters[$field] !== '') {
+                $where[] = "A.$field = ?";
+                $params[] = $filters[$field];
+            }
+        }
+
+        if (isset($filters['q']) && $filters['q'] !== '') {
+            $like = '%' . addcslashes($filters['q'], '%_\\') . '%';
+            $where[] = "(A.subject LIKE ? ESCAPE '\\' OR A.message LIKE ? ESCAPE '\\')";
+            $params[] = $like;
+            $params[] = $like;
+        }
+
+        $sql = "SELECT DATETIME(A.dt, ?) as time,
+                       A.facility as facility,
+                       A.user as user,
+                       A.ip as ip,
+                       A.action as action,
+                       A.subject as subject,
+                       A.message as message,
+                       A.details as details
+                  FROM audit as A
+                 WHERE " . implode(' AND ', $where) . "
+              ORDER BY A.dt DESC, A.id DESC" . $this->limit;
+        return $this->db->queryAll($sql, $params);
+    }
+
+    /**
+     * Audit event counts per facility and action
+     */
+    public function auditactions(): array
+    {
+        $sql = "SELECT COUNT(*) as cnt,
+                       A.facility || ':' || A.action as action
+                  FROM audit as A
+                 WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?)
+              GROUP BY A.facility, A.action
+              ORDER BY cnt DESC, action ASC" . $this->limit;
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
+    }
+
+    /**
+     * Audit event counts per user
+     */
+    public function auditusers(): array
+    {
+        $sql = "SELECT COUNT(*) as cnt,
+                       CASE WHEN A.user = '' THEN '(anonymous)' ELSE A.user END as user
+                  FROM audit as A
+                 WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?)
+              GROUP BY A.user
+              ORDER BY cnt DESC, user ASC" . $this->limit;
+        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
+    }
+
+    /**
+     * Facilities that have audit events in the time frame
+     *
+     * @return string[]
+     */
+    public function auditfacilities(): array
+    {
+        $sql = "SELECT DISTINCT A.facility as facility
+                  FROM audit as A
+                 WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?)
+              ORDER BY A.facility";
+        $rows = $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
+        return array_column($rows, 'facility');
+    }
+
+    // endregion
 }
