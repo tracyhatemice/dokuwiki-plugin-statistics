@@ -278,18 +278,15 @@ class LoggerTest extends DokuWikiTest
         // Create a mock HTTP client
         $mockHttpClient = $this->createMock(\dokuwiki\HTTP\DokuHTTPClient::class);
 
-        // Mock the API response
+        // Mock the response of the local geoip lookup service
         $mockResponse = json_encode([
-            'status' => 'success',
-            'country' => 'United States',
-            'countryCode' => 'US',
-            'city' => 'Ashburn',
-            'query' => $ip
+            'Country' => ['Code' => 'US', 'Names' => ['en' => 'United States']],
+            'City' => ['Names' => ['en' => 'Ashburn']],
         ]);
 
         $mockHttpClient->expects($this->once())
             ->method('get')
-            ->with('http://ip-api.com/json/' . $ip)
+            ->with('http://geoip/lookup/city?ip=' . $ip)
             ->willReturn($mockResponse);
 
         // Set timeout property
@@ -309,7 +306,7 @@ class LoggerTest extends DokuWikiTest
         $this->assertEquals('United States', $ipRecord['country']);
         $this->assertEquals('US', $ipRecord['code']);
         $this->assertEquals('Ashburn', $ipRecord['city']);
-        $this->assertNotEmpty($ipRecord['host']); // gethostbyaddr result
+        $this->assertSame('', $ipRecord['host']); // reverse DNS is disabled
 
         // Test with IP that already exists and is recent (should not make HTTP call)
         $mockHttpClient2 = $this->createMock(\dokuwiki\HTTP\DokuHTTPClient::class);
