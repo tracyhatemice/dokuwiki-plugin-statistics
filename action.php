@@ -3,6 +3,8 @@
 use dokuwiki\Extension\ActionPlugin;
 use dokuwiki\Extension\Event;
 use dokuwiki\Extension\EventHandler;
+use dokuwiki\ErrorHandler;
+use dokuwiki\plugin\statistics\AuditRecord;
 
 /**
  *
@@ -11,6 +13,9 @@ use dokuwiki\Extension\EventHandler;
  */
 class action_plugin_statistics extends ActionPlugin
 {
+    /** @var bool re-entrancy guard: a failing audit insert logs an error, which must not audit itself */
+    protected static bool $auditing = false;
+
     /**
      * register the eventhandlers and initialize some options
      */
@@ -27,6 +32,9 @@ class action_plugin_statistics extends ActionPlugin
         $controller->register_hook('FETCH_MEDIA_STATUS', 'BEFORE', $this, 'logmedia', []);
         $controller->register_hook('INDEXER_TASKS_RUN', 'AFTER', $this, 'loghistory', []);
         $controller->register_hook('INDEXER_TASKS_RUN', 'AFTER', $this, 'retention', []);
+
+        // audit: capture native Logger events into the audit table
+        $controller->register_hook('LOGGER_DATA_FORMAT', 'BEFORE', $this, 'logaudit', []);
 
         // log registration and login/logout actionsonly when user tracking is enabled
         if (!$this->getConf('nousers')) {
@@ -165,6 +173,100 @@ class action_plugin_statistics extends ActionPlugin
     }
 
     /**
+     * Capture a native Logger event into the audit table
+     *
+     * Runs BEFORE the default formatting, so message and details are still raw.
+     * When audit_keepfiles is off and the row was stored, the default file write
+     * is prevented. Failures never propagate to the caller and never recurse.
+     */
+    public function logaudit(Event $event, $param)
+    {
+        if (self::$auditing) return;
+        if (!in_array($event->data['facility'], $this->auditFacilities(), true)) return;
+
+        self::$auditing = true;
+        try {
+            global $INPUT;
+            $row = AuditRecord::fromLogEvent(
+                $event->data,
+                ['user' => $INPUT->server->str('REMOTE_USER'), 'ip' => clientIP(true)],
+                $this->auditList('audit_subject_keys')
+            );
+            if ($this->isAuditFiltered($row['facility'], $row['action'])) return;
+
+            $hook = new Event('PLUGIN_STATISTICS_AUDIT_RECORD', $row);
+            $stored = false;
+            if ($hook->advise_before()) {
+                /** @var helper_plugin_statistics $hlp */
+                $hlp = plugin_load('helper', 'statistics');
+                $hlp->getAuditLog()->store($row);
+                $stored = true;
+            }
+            $hook->advise_after();
+
+            if ($stored && !$this->getConf('audit_keepfiles')) {
+                $event->preventDefault();
+            }
+        } catch (\Throwable $e) {
+            ErrorHandler::logException($e);
+        } finally {
+            self::$auditing = false;
+        }
+    }
+
+    /**
+     * The configured audit facilities, trimmed, empty entries dropped
+     *
+     * @return string[]
+     */
+    public function auditFacilities(): array
+    {
+        return $this->auditList('audit_facilities');
+    }
+
+    /**
+     * Is this event dropped by the audit_include / audit_exclude patterns?
+     *
+     * Patterns are facility:action with shell wildcards; a pattern without an
+     * action part matches the whole facility. Exclusions win over inclusions.
+     */
+    public function isAuditFiltered(string $facility, string $action): bool
+    {
+        $exclude = $this->auditList('audit_exclude');
+        if ($exclude && $this->auditMatches($exclude, $facility, $action)) return true;
+
+        $include = $this->auditList('audit_include');
+        if ($include && !$this->auditMatches($include, $facility, $action)) return true;
+
+        return false;
+    }
+
+    /**
+     * Does any pattern match the facility alone or facility:action?
+     *
+     * @param string[] $patterns
+     */
+    protected function auditMatches(array $patterns, string $facility, string $action): bool
+    {
+        foreach ($patterns as $pattern) {
+            if (fnmatch($pattern, $facility) || fnmatch($pattern, "$facility:$action")) return true;
+        }
+        return false;
+    }
+
+    /**
+     * A comma separated list setting, trimmed, empty entries dropped
+     *
+     * @return string[]
+     */
+    protected function auditList(string $setting): array
+    {
+        $list = explode(',', (string)$this->getConf($setting));
+        $list = array_map('trim', $list);
+        return array_values(array_filter($list, static fn($f) => $f !== ''));
+    }
+
+    /**
      * Log media access
      */
     public function logmedia(Event $event, $param)
@@ -235,12 +337,15 @@ class action_plugin_statistics extends ActionPlugin
      * Prune old data
      *
      * This is run once a day and removes all data older than the configured
-     * retention time.
+     * retention times. Statistics tables and the audit table have separate
+     * retention settings.
      */
     public function retention(Event $event, $param)
     {
         $retention = (int)$this->getConf('retention');
-        if ($retention <= 0) return;
+        $auditRetention = (int)$this->getConf('audit_retention');
+        if ($retention <= 0 && $auditRetention <= 0) return;
+
         // pruning is only done once a day
         $touch = getCacheName('statistics_retention', '.statistics-retention');
         if (file_exists($touch) && time() - filemtime($touch) < 24 * 3600) {
@@ -269,11 +374,17 @@ class action_plugin_statistics extends ActionPlugin
         $db = $hlp->getDB();
 
         $db->getPdo()->beginTransaction();
-        foreach ($tables as $table) {
-            echo "Plugin Statistics: pruning $table" . DOKU_LF;
-            $db->exec(
-                "DELETE FROM $table WHERE dt < datetime('now', '-$retention days')"
-            );
+        if ($retention > 0) {
+            foreach ($tables as $table) {
+                echo "Plugin Statistics: pruning $table" . DOKU_LF;
+                $db->exec(
+                    "DELETE FROM $table WHERE dt < datetime('now', '-$retention days')"
+                );
+            }
+        }
+        if ($auditRetention > 0) {
+            echo "Plugin Statistics: pruning audit" . DOKU_LF;
+            $hlp->getAuditLog()->prune($auditRetention);
         }
         $db->getPdo()->commit();
 

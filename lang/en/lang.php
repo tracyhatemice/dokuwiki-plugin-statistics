@@ -59,6 +59,10 @@ $lang['links']                 = '(Links)';
 $lang['campaign']              = '(Campaigns)';
 $lang['search']                = '(Search)';
 $lang['technology']            = '(Technology)';
+$lang['audit']                 = '(Audit)';
+$lang['auditlog']              = 'Audit Log';
+$lang['auditactions']          = 'Audit Events by Action';
+$lang['auditusers']            = 'Audit Events by User';
 $lang['trafficsum']            = '<strong>%s</strong> requests caused <strong>%s</strong> traffic.';
 
 
@@ -90,6 +94,26 @@ $lang['intro_topgroupedit']          = 'These are the groups of the logged in us
 $lang['intro_campaigns']             = 'This shows the number of visits you received through a tracked campaign.';
 $lang['intro_medium']                = 'This shows the number of visits you received via a specific medium of a tracked campaign, e.g. email, social media, etc.';
 $lang['intro_source']                = 'This shows the number of visits you received via a specific source of a tracked campaign, e.g. newsletter, Facebook, etc.';
+$lang['intro_auditlog']              = 'Events captured from the configured logger facilities in the selected timeframe, newest first. Use the filters to narrow the list; the free text filter matches the subject and the message.';
+$lang['intro_auditactions']          = 'How often each audit action was recorded in the selected timeframe, grouped by facility and action.';
+$lang['intro_auditusers']            = 'Which users caused the most audit events in the selected timeframe.';
+
+// audit log page
+$lang['audit_filter_facility'] = 'Facility';
+$lang['audit_filter_any']      = 'any';
+$lang['audit_filter_user']     = 'User';
+$lang['audit_filter_action']   = 'Action';
+$lang['audit_filter_q']        = 'Text';
+$lang['audit_filter_go']       = 'Filter';
+$lang['audit_col_time']        = 'Time';
+$lang['audit_col_facility']    = 'Facility';
+$lang['audit_col_user']        = 'User';
+$lang['audit_col_ip']          = 'IP';
+$lang['audit_col_action']      = 'Action';
+$lang['audit_col_subject']     = 'Subject';
+$lang['audit_col_message']     = 'Message';
+$lang['audit_col_details']     = 'Details';
+$lang['audit_noentries']       = 'No audit events match.';
 
 // the dashboard items
 $lang['dash_pageviews']     = '<strong>%d</strong> Page Views';

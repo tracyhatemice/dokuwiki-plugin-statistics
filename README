@@ -15,6 +15,42 @@ will not work!
 Please refer to http://www.dokuwiki.org/plugins for additional info
 on how to install plugins in DokuWiki.
 
+Audit log
+---------
+
+Events that other plugins write through DokuWiki's native logger
+(\dokuwiki\Logger::getInstance('<facility>')->log(...)) can be captured into
+the statistics database and browsed under Admin > Statistics > (Audit).
+
+  * audit_facilities  comma separated facilities to capture, e.g.
+                      facility1,facility2
+                      Empty disables auditing. Facilities in the core
+                      "dontlog" setting are never captured.
+  * audit_include     comma separated facility:action patterns (shell
+                      wildcards, action optional); when set, only matching
+                      events are stored, e.g. logged:edit, logged:save
+  * audit_exclude     patterns whose events are not stored, e.g.
+                      logged:show, logged:media, *:debug_*
+                      Exclusions win. Excluded events still reach the files.
+  * audit_keepfiles   keep writing the file logs as well (default on)
+  * audit_retention   days to keep audit rows, 0 = forever
+  * audit_subject_keys  comma separated detail keys tried, in order, for
+                      the subject column (default id,page). Add keys your
+                      plugins emit, e.g. id,page
+
+Each event is stored with facility, user, ip, action, subject, message and
+the original details. All known sources write "<user> <action> ..." as the
+message and a compact JSON object as details; user/ip/action come from
+that JSON when present, otherwise from the request. The subject is the
+first of the configured subject keys found in the details.
+
+Other plugins can adjust or drop a row before it is stored by handling the
+PLUGIN_STATISTICS_AUDIT_RECORD event (BEFORE, preventable). The event data
+is the row: dt, facility, user, ip, action, subject, message, details.
+
+The audit pages are visible to superusers only. The statistics privacy
+settings anonips and nousers do not apply to audit rows.
+
 ----
 Copyright (C) Andreas Gohr <andi@splitbrain.org>
 
