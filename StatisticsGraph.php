@@ -325,40 +325,66 @@ class StatisticsGraph
      */
     public function auditdashboard()
     {
-        $hours = ($this->from == $this->to);
-        $result = $this->hlp->getQuery()->auditdashboard($hours);
+        $this->auditTrend('facility', 'auditdashboard');
+    }
 
-        $facilities = [];
+    public function auditactions()
+    {
+        $this->auditTrend('action', 'auditactions');
+    }
+
+    public function auditusers()
+    {
+        $this->auditTrend('user', 'auditusers');
+    }
+
+    public function auditips()
+    {
+        $this->auditTrend('ip', 'auditips');
+    }
+
+    /**
+     * Audit events over time, one line per series, the long tail summed as "other"
+     *
+     * @param string $key series key understood by Query::audittrend()
+     * @param string $name graph name
+     */
+    protected function auditTrend(string $key, string $name)
+    {
+        $hours = ($this->from == $this->to);
+        $result = $this->hlp->getQuery()->audittrend($key, $hours);
+
+        $names = [];
         foreach ($result as $row) {
-            foreach (array_keys($row) as $facility) {
-                $facilities[$facility] = true;
+            foreach (array_keys($row) as $series) {
+                $names[$series] = true;
             }
         }
-        unset($facilities['other']);
-        $facilities = array_keys($facilities);
-        sort($facilities);
+        unset($names['other']);
+        $names = array_keys($names);
+        sort($names);
         if (array_filter($result, static fn($row) => isset($row['other']))) {
-            $facilities[] = 'other';
+            $names[] = 'other';
         }
 
         $times = [];
-        $series = array_fill_keys($facilities, []);
+        $series = array_fill_keys($names, []);
         foreach ($result as $time => $row) {
             $times[] = $time . ($hours ? 'h' : '');
-            foreach ($facilities as $facility) {
-                $series[$facility][] = (int)($row[$facility] ?? 0);
+            foreach ($names as $series_name) {
+                $series[$series_name][] = (int)($row[$series_name] ?? 0);
             }
         }
 
         $datasets = [];
-        foreach ($series as $facility => $data) {
+        foreach ($series as $series_name => $data) {
             $datasets[] = [
-                'label' => $facility === 'other' ? $this->hlp->getLang('graph_audit_other') : $facility,
+                'label' => $series_name === 'other' ? $this->hlp->getLang('graph_audit_other') : $series_name,
                 'data' => $data,
             ];
         }
 
-        $this->printGraph('auditdashboard', 'line', ['datasets' => $datasets, 'labels' => $times]);
+        $this->printGraph($name, 'line', ['datasets' => $datasets, 'labels' => $times]);
     }
 
     /**

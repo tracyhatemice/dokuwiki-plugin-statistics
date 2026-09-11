@@ -64,6 +64,8 @@ $lang['auditdashboard']        = 'Audit Dashboard';
 $lang['auditlog']              = 'Audit Log';
 $lang['auditactions']          = 'Audit Events by Action';
 $lang['auditusers']            = 'Audit Events by User';
+$lang['auditips']              = 'Audit Events by IP';
+$lang['auditmatrix']           = 'Audit Matrix';
 $lang['trafficsum']            = '<strong>%s</strong> requests caused <strong>%s</strong> traffic.';
 
 
@@ -97,8 +99,10 @@ $lang['intro_medium']                = 'This shows the number of visits you rece
 $lang['intro_source']                = 'This shows the number of visits you received via a specific source of a tracked campaign, e.g. newsletter, Facebook, etc.';
 $lang['intro_auditdashboard']        = 'Overview of the audit events captured in the selected timeframe. Pick a page from the Audit section for details.';
 $lang['intro_auditlog']              = 'Events captured from the configured logger facilities in the selected timeframe, newest first. Use the filters to narrow the list; the free text filter matches the subject and the message.';
-$lang['intro_auditactions']          = 'How often each audit action was recorded in the selected timeframe, grouped by facility and action.';
-$lang['intro_auditusers']            = 'Which users caused the most audit events in the selected timeframe.';
+$lang['intro_auditactions']          = 'Each facility and action recorded in the selected timeframe, with how many users and IP addresses were involved and when it was first and last seen. Click an action to see its events.';
+$lang['intro_auditusers']            = 'Each user with audit events in the selected timeframe, with how many actions, IP addresses and facilities they touched, their most frequent actions, and when they were first and last seen. Click a user to see their events.';
+$lang['intro_auditips']              = 'Each client IP address with audit events in the selected timeframe, with how many users acted from it and what they did. Click an address to see its events.';
+$lang['intro_auditmatrix']           = 'Who did what: the busiest users against the busiest actions in the selected timeframe. Click a count to see those events.';
 
 // audit dashboard
 $lang['dash_audit_events']     = '<strong>%d</strong> Audit Events';
@@ -117,6 +121,7 @@ $lang['audit_filter_facility'] = 'Facility';
 $lang['audit_filter_any']      = 'any';
 $lang['audit_filter_user']     = 'User';
 $lang['audit_filter_action']   = 'Action';
+$lang['audit_filter_ip']       = 'IP';
 $lang['audit_filter_q']        = 'Text';
 $lang['audit_filter_go']       = 'Filter';
 $lang['audit_col_time']        = 'Time';
@@ -127,6 +132,15 @@ $lang['audit_col_action']      = 'Action';
 $lang['audit_col_subject']     = 'Subject';
 $lang['audit_col_message']     = 'Message';
 $lang['audit_col_details']     = 'Details';
+$lang['audit_col_cnt']         = 'Events';
+$lang['audit_col_users']       = 'Users';
+$lang['audit_col_ips']         = 'IPs';
+$lang['audit_col_actions']     = 'Actions';
+$lang['audit_col_facilities']  = 'Facilities';
+$lang['audit_col_first']       = 'First Seen';
+$lang['audit_col_last']        = 'Last Seen';
+$lang['audit_col_topactions']  = 'Top Actions';
+$lang['audit_matrix_corner']   = 'User \\ Action';
 $lang['audit_noentries']       = 'No audit events match.';
 
 // the dashboard items

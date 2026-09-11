@@ -105,6 +105,8 @@ class AuditAdminTest extends DokuWikiTest
         $this->assertStringContainsString('opt=auditlog', $links);
         $this->assertStringContainsString('opt=auditactions', $links);
         $this->assertStringContainsString('opt=auditusers', $links);
+        $this->assertStringContainsString('opt=auditips', $links);
+        $this->assertStringContainsString('opt=auditmatrix', $links);
     }
 
     public function testAdminWithoutFacilitiesDoesNotSeeAuditSection()
@@ -135,6 +137,7 @@ class AuditAdminTest extends DokuWikiTest
 
         $this->assertStringContainsString('plg_stats_auditfilter', $html);
         $this->assertStringContainsString('name="af"', $html);
+        $this->assertStringContainsString('name="ai"', $html, 'ip filter');
         $this->assertStringContainsString('<option value="facility1"', $html);
         $this->assertStringContainsString('alice delete success', $html);
         $this->assertStringContainsString('item&lt;1&gt;', $html);
@@ -165,15 +168,63 @@ class AuditAdminTest extends DokuWikiTest
         $this->assertStringContainsString('plg_stats_audit_empty', $html);
     }
 
-    public function testSummaryPagesRender()
+    public function testActionsPageLinksIntoTheLog()
     {
         $this->loginAs('adminuser', ['admin']);
 
         $html = $this->render(['opt' => 'auditactions']);
-        $this->assertStringContainsString('facility1:delete', $html);
+
+        $this->assertStringContainsString('name="auditactions"', $html, 'trend chart');
+        $this->assertStringContainsString('<th>Events</th>', $html, 'column headers');
+        $this->assertMatchesRegularExpression(
+            '/<a href="\?[^"]*opt=auditlog[^"]*af=facility1[^"]*aa=delete[^"]*">delete<\/a>/',
+            $html
+        );
+    }
+
+    public function testUsersPageLinksIntoTheLogExceptAnonymous()
+    {
+        $this->loginAs('adminuser', ['admin']);
 
         $html = $this->render(['opt' => 'auditusers']);
+
+        $this->assertMatchesRegularExpression('/<a href="\?[^"]*opt=auditlog[^"]*au=alice[^"]*">alice<\/a>/', $html);
         $this->assertStringContainsString('(anonymous)', $html);
+        $this->assertStringNotContainsString('au=%28anonymous%29', $html);
+        $this->assertStringContainsString('delete 1', $html, 'top actions cell');
+    }
+
+    public function testIpsPageLinksIntoTheLog()
+    {
+        $this->loginAs('adminuser', ['admin']);
+
+        $html = $this->render(['opt' => 'auditips']);
+
+        $this->assertMatchesRegularExpression('/<a href="\?[^"]*opt=auditlog[^"]*ai=192\.0\.2\.1[^"]*">192\.0\.2\.1<\/a>/', $html);
+    }
+
+    public function testMatrixPage()
+    {
+        $this->loginAs('adminuser', ['admin']);
+
+        $html = $this->render(['opt' => 'auditmatrix']);
+
+        $this->assertStringContainsString('plg_stats_auditmatrix', $html);
+        $this->assertStringContainsString('<th>facility1:delete</th>', $html);
+        $this->assertMatchesRegularExpression(
+            '/<a href="\?[^"]*opt=auditlog[^"]*au=alice[^"]*af=facility1[^"]*aa=delete[^"]*">1<\/a>/',
+            $html
+        );
+    }
+
+    public function testMatrixPageWithoutRows()
+    {
+        global $conf;
+        $this->loginAs('adminuser', ['admin']);
+        plugin_load('helper', 'statistics')->getDB()->exec('DELETE FROM audit');
+
+        $html = $this->render(['opt' => 'auditmatrix']);
+        $this->assertStringContainsString('plg_stats_audit_empty', $html);
     }
 
     public function testAuditDashboardRenders()
@@ -187,7 +238,7 @@ class AuditAdminTest extends DokuWikiTest
         $this->assertStringContainsString('<strong>1</strong> Distinct Users', $html);
         $this->assertStringContainsString('<strong>1</strong> Anonymous Events', $html);
         $this->assertStringContainsString('name="auditdashboard"', $html, 'trend chart is rendered');
-        $this->assertStringContainsString('facility1:delete', $html, 'top actions table');
+        $this->assertMatchesRegularExpression('/<td class="plg_stats_Xauditaction">.*delete/', $html, 'top actions table');
         $this->assertStringContainsString('(anonymous)', $html, 'top users table');
         $this->assertStringContainsString('item&lt;1&gt;', $html, 'latest events table');
         $this->assertStringContainsString('opt=auditlog', $html, 'more link to the log');

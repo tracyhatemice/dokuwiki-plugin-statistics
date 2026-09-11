@@ -777,17 +777,28 @@ class Query
     }
     // region audit
 
+    /** label used for events without a user */
+    public const ANONYMOUS = '(anonymous)';
+
+    /** series expressions for audittrend(): key => [SQL expression, extra WHERE] */
+    protected const TREND_KEYS = [
+        'facility' => ['A.facility', ''],
+        'action' => ["A.facility || ':' || A.action", ''],
+        'user' => ["CASE WHEN A.user = '' THEN '" . self::ANONYMOUS . "' ELSE A.user END", ''],
+        'ip' => ['A.ip', "AND A.ip != ''"],
+    ];
+
     /**
      * Audit events, newest first
      *
-     * @param array $filters optional 'facility', 'user', 'action' (exact) and 'q' (substring in subject or message)
+     * @param array $filters optional 'facility', 'user', 'action', 'ip' (exact) and 'q' (substring in subject or message)
      */
     public function auditlog(array $filters = []): array
     {
         $where = ['A.dt >= DATETIME(?, ?)', 'A.dt <= DATETIME(?, ?)'];
         $params = [$this->tz, $this->from, $this->tzInv, $this->to, $this->tzInv];
 
-        foreach (['facility', 'user', 'action'] as $field) {
+        foreach (['facility', 'user', 'action', 'ip'] as $field) {
             if (isset($filters[$field]) && $filters[$field] !== '') {
                 $where[] = "A.$field = ?";
                 $params[] = $filters[$field];
@@ -816,31 +827,130 @@ class Query
     }
 
     /**
-     * Audit event counts per facility and action
+     * Audit events per facility and action, with who and when
      */
     public function auditactions(): array
     {
-        $sql = "SELECT COUNT(*) as cnt,
-                       A.facility || ':' || A.action as action
+        $sql = "SELECT A.facility as facility,
+                       A.action as auditaction,
+                       COUNT(*) as cnt,
+                       COUNT(DISTINCT NULLIF(A.user, '')) as users,
+                       COUNT(DISTINCT NULLIF(A.ip, '')) as ips,
+                       DATETIME(MIN(A.dt), ?) as first,
+                       DATETIME(MAX(A.dt), ?) as last
                   FROM audit as A
                  WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?)
               GROUP BY A.facility, A.action
-              ORDER BY cnt DESC, action ASC" . $this->limit;
-        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
+              ORDER BY cnt DESC, facility ASC, auditaction ASC" . $this->limit;
+        return $this->db->queryAll($sql, [$this->tz, $this->tz, $this->from, $this->tzInv, $this->to, $this->tzInv]);
     }
 
     /**
-     * Audit event counts per user
+     * Audit events per user, with what, from where and when
+     *
+     * The topactions column lists the user's three most frequent actions as "action count".
      */
     public function auditusers(): array
     {
-        $sql = "SELECT COUNT(*) as cnt,
-                       CASE WHEN A.user = '' THEN '(anonymous)' ELSE A.user END as user
+        $anonymous = self::ANONYMOUS;
+        $sql = "SELECT CASE WHEN U.user = '' THEN '$anonymous' ELSE U.user END as audituser,
+                       U.cnt as cnt,
+                       U.actions as actions,
+                       U.ips as ips,
+                       U.facilities as facilities,
+                       U.first as first,
+                       U.last as last,
+                       (SELECT GROUP_CONCAT(T.action || ' ' || T.c, ', ')
+                          FROM (SELECT B.action as action, COUNT(*) as c
+                                  FROM audit as B
+                                 WHERE B.user = U.user
+                                   AND B.dt >= DATETIME(?, ?) AND B.dt <= DATETIME(?, ?)
+                              GROUP BY B.action
+                              ORDER BY c DESC, B.action ASC
+                                 LIMIT 3) as T) as topactions
+                  FROM (SELECT A.user as user,
+                               COUNT(*) as cnt,
+                               COUNT(DISTINCT A.action) as actions,
+                               COUNT(DISTINCT NULLIF(A.ip, '')) as ips,
+                               COUNT(DISTINCT A.facility) as facilities,
+                               DATETIME(MIN(A.dt), ?) as first,
+                               DATETIME(MAX(A.dt), ?) as last
+                          FROM audit as A
+                         WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?)
+                      GROUP BY A.user) as U
+              ORDER BY U.cnt DESC, audituser ASC" . $this->limit;
+        return $this->db->queryAll($sql, [
+            $this->from, $this->tzInv, $this->to, $this->tzInv,
+            $this->tz, $this->tz, $this->from, $this->tzInv, $this->to, $this->tzInv,
+        ]);
+    }
+
+    /**
+     * Audit events per client IP, with who, what and when
+     */
+    public function auditips(): array
+    {
+        $sql = "SELECT A.ip as auditip,
+                       COUNT(*) as cnt,
+                       COUNT(DISTINCT NULLIF(A.user, '')) as users,
+                       COUNT(DISTINCT A.action) as actions,
+                       COUNT(DISTINCT A.facility) as facilities,
+                       DATETIME(MIN(A.dt), ?) as first,
+                       DATETIME(MAX(A.dt), ?) as last
+                  FROM audit as A
+                 WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?)
+                   AND A.ip != ''
+              GROUP BY A.ip
+              ORDER BY cnt DESC, auditip ASC" . $this->limit;
+        return $this->db->queryAll($sql, [$this->tz, $this->tz, $this->from, $this->tzInv, $this->to, $this->tzInv]);
+    }
+
+    /**
+     * Who did what: event counts of the busiest users against the busiest actions
+     *
+     * @param int $max users and actions to include
+     * @return array{users: string[], actions: string[], cells: array<string, array<string, int>>}
+     *         users are raw ('' for anonymous), actions are "facility:action"
+     */
+    public function auditmatrix(int $max = 10): array
+    {
+        $range = [$this->from, $this->tzInv, $this->to, $this->tzInv];
+
+        $sql = "SELECT A.user as user, COUNT(*) as cnt
                   FROM audit as A
                  WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?)
               GROUP BY A.user
-              ORDER BY cnt DESC, user ASC" . $this->limit;
-        return $this->db->queryAll($sql, [$this->from, $this->tzInv, $this->to, $this->tzInv]);
+              ORDER BY cnt DESC, user ASC
+                 LIMIT " . (int)$max;
+        $users = array_column($this->db->queryAll($sql, $range), 'user');
+
+        $sql = "SELECT A.facility || ':' || A.action as action, COUNT(*) as cnt
+                  FROM audit as A
+                 WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?)
+              GROUP BY action
+              ORDER BY cnt DESC, action ASC
+                 LIMIT " . (int)$max;
+        $actions = array_column($this->db->queryAll($sql, $range), 'action');
+
+        if (!$users || !$actions) {
+            return ['users' => [], 'actions' => [], 'cells' => []];
+        }
+
+        $in = static fn(array $list) => implode(',', array_fill(0, count($list), '?'));
+        $sql = "SELECT A.user as user,
+                       A.facility || ':' || A.action as action,
+                       COUNT(*) as cnt
+                  FROM audit as A
+                 WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?)
+                   AND A.user IN (" . $in($users) . ")
+                   AND A.facility || ':' || A.action IN (" . $in($actions) . ")
+              GROUP BY A.user, action";
+        $cells = [];
+        foreach ($this->db->queryAll($sql, array_merge($range, $users, $actions)) as $row) {
+            $cells[$row['user']][$row['action']] = (int)$row['cnt'];
+        }
+
+        return ['users' => $users, 'actions' => $actions, 'cells' => $cells];
     }
 
     /**
@@ -892,6 +1002,21 @@ class Query
      */
     public function auditdashboard(bool $hours = false, int $max = 5): array
     {
+        return $this->audittrend('facility', $hours, $max);
+    }
+
+    /**
+     * Audit events per time slot, split by facility, action, user or ip
+     *
+     * @param string $key one of facility, action ("facility:action"), user, ip
+     * @param bool $hours Use hour resolution rather than days
+     * @param int $max Series to show individually, the rest is summed as 'other'
+     * @return array [time][series] => count
+     */
+    public function audittrend(string $key, bool $hours = false, int $max = 5): array
+    {
+        [$expr, $extra] = self::TREND_KEYS[$key] ?? self::TREND_KEYS['facility'];
+
         if ($hours) {
             $TIME = "strftime('%H', DATETIME(A.dt, '$this->tz'))";
         } else {
@@ -899,26 +1024,26 @@ class Query
         }
         $params = [$this->from, $this->tzInv, $this->to, $this->tzInv];
 
-        // the busiest facilities keep their own line
-        $sql = "SELECT A.facility as facility, COUNT(*) as cnt
+        // the busiest series keep their own line
+        $sql = "SELECT $expr as series, COUNT(*) as cnt
                   FROM audit as A
-                 WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?)
-              GROUP BY A.facility
-              ORDER BY cnt DESC, facility ASC
+                 WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?) $extra
+              GROUP BY series
+              ORDER BY cnt DESC, series ASC
                  LIMIT " . (int)$max;
-        $top = array_column($this->db->queryAll($sql, $params), 'facility');
+        $top = array_column($this->db->queryAll($sql, $params), 'series');
 
         $sql = "SELECT $TIME as time,
-                       A.facility as facility,
+                       $expr as series,
                        COUNT(*) as cnt
                   FROM audit as A
-                 WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?)
-              GROUP BY time, A.facility
+                 WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?) $extra
+              GROUP BY time, series
               ORDER BY time";
         $data = [];
         foreach ($this->db->queryAll($sql, $params) as $row) {
-            $key = in_array($row['facility'], $top, true) ? $row['facility'] : 'other';
-            $data[$row['time']][$key] = ($data[$row['time']][$key] ?? 0) + (int)$row['cnt'];
+            $series = in_array($row['series'], $top, true) ? $row['series'] : 'other';
+            $data[$row['time']][$series] = ($data[$row['time']][$series] ?? 0) + (int)$row['cnt'];
         }
         ksort($data);
         return $data;
