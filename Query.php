@@ -791,7 +791,8 @@ class Query
     /**
      * Audit events, newest first
      *
-     * @param array $filters optional 'facility', 'user', 'action', 'ip' (exact) and 'q' (substring in subject or message)
+     * @param array $filters optional exact filters 'facility', 'user', 'action', 'ip'
+     *                       and 'q' (substring in subject or message)
      */
     public function auditlog(array $filters = []): array
     {
