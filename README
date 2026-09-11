@@ -22,7 +22,9 @@ Events that other plugins write through DokuWiki's native logger
 (\dokuwiki\Logger::getInstance('<facility>')->log(...)) can be captured into
 the statistics database and browsed under Admin > Statistics > (Audit):
 a dashboard with counters, an events-per-facility trend and quick tables,
-a filterable event log, and summaries by action and by user.
+a filterable event log (facility, user, action, ip, free text), summaries
+by action, by user and by IP with trend graphs that link into the log,
+and a user-by-action matrix.
 
   * audit_facilities  comma separated facilities to capture, e.g.
                       facility1,facility2

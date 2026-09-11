@@ -91,19 +91,99 @@ class AuditQueryTest extends DokuWikiTest
     public function testAuditactions()
     {
         $rows = $this->helper->getQuery()->auditactions();
-        $this->assertSame(['cnt', 'action'], array_keys($rows[0]));
-        $this->assertSame('logged:show', $rows[0]['action']);
+        $this->assertSame(
+            ['facility', 'auditaction', 'cnt', 'users', 'ips', 'first', 'last'],
+            array_keys($rows[0])
+        );
+        $this->assertSame('logged', $rows[0]['facility']);
+        $this->assertSame('show', $rows[0]['auditaction']);
         $this->assertSame(2, (int)$rows[0]['cnt']);
+        $this->assertSame(1, (int)$rows[0]['users'], 'anonymous is not a user');
+        $this->assertSame(0, (int)$rows[0]['ips']);
+        $this->assertMatchesRegularExpression('/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/', $rows[0]['first']);
+        $this->assertLessThanOrEqual($rows[0]['last'], $rows[0]['first']);
         $this->assertCount(3, $rows);
     }
 
     public function testAuditusers()
     {
         $rows = $this->helper->getQuery()->auditusers();
-        $byUser = array_column($rows, 'cnt', 'user');
-        $this->assertSame(2, (int)$byUser['alice']);
-        $this->assertSame(1, (int)$byUser['bob']);
-        $this->assertSame(1, (int)$byUser['(anonymous)']);
+        $this->assertSame(
+            ['audituser', 'cnt', 'actions', 'ips', 'facilities', 'first', 'last', 'topactions'],
+            array_keys($rows[0])
+        );
+        $byUser = array_column($rows, null, 'audituser');
+        $this->assertSame(2, (int)$byUser['alice']['cnt']);
+        $this->assertSame(2, (int)$byUser['alice']['actions']);
+        $this->assertSame(2, (int)$byUser['alice']['facilities']);
+        $this->assertSame('delete 1, show 1', $byUser['alice']['topactions']);
+        $this->assertSame(1, (int)$byUser['bob']['cnt']);
+        $this->assertSame('create 1', $byUser['bob']['topactions']);
+        $this->assertSame(1, (int)$byUser['(anonymous)']['cnt']);
+        $this->assertSame('show 1', $byUser['(anonymous)']['topactions']);
+    }
+
+    public function testAuditips()
+    {
+        $this->helper->getDB()->exec("UPDATE audit SET ip = '192.0.2.1' WHERE user = 'alice'");
+        $this->helper->getDB()->exec("UPDATE audit SET ip = '192.0.2.1' WHERE user = 'bob'");
+
+        $rows = $this->helper->getQuery()->auditips();
+        $this->assertCount(1, $rows, 'empty ips are left out');
+        $this->assertSame(
+            ['auditip', 'cnt', 'users', 'actions', 'facilities', 'first', 'last'],
+            array_keys($rows[0])
+        );
+        $this->assertSame('192.0.2.1', $rows[0]['auditip']);
+        $this->assertSame(3, (int)$rows[0]['cnt']);
+        $this->assertSame(2, (int)$rows[0]['users']);
+        $this->assertSame(3, (int)$rows[0]['actions']);
+    }
+
+    public function testAuditlogIpFilter()
+    {
+        $this->helper->getDB()->exec("UPDATE audit SET ip = '192.0.2.1' WHERE user = 'bob'");
+        $q = $this->helper->getQuery();
+        $this->assertCount(1, $q->auditlog(['ip' => '192.0.2.1']));
+        $this->assertCount(0, $q->auditlog(['ip' => '192.0.2.2']));
+    }
+
+    public function testAudittrendByActionAndUser()
+    {
+        $q = $this->helper->getQuery();
+        $today = date('Y-m-d');
+
+        $byAction = $q->audittrend('action', false);
+        $this->assertSame(['facility1:create' => 1, 'facility1:delete' => 1, 'logged:show' => 2], $byAction[$today]);
+
+        $byUser = $q->audittrend('user', false);
+        $this->assertSame(['(anonymous)' => 1, 'alice' => 2, 'bob' => 1], $byUser[$today]);
+
+        $byIp = $q->audittrend('ip', false);
+        $this->assertSame([], $byIp, 'empty ips are left out');
+    }
+
+    public function testAuditmatrix()
+    {
+        $data = $this->helper->getQuery()->auditmatrix();
+
+        $this->assertSame(['alice', '', 'bob'], $data['users'], 'busiest first, then by name');
+        $this->assertSame(['logged:show', 'facility1:create', 'facility1:delete'], $data['actions']);
+        $this->assertSame(1, $data['cells']['alice']['logged:show']);
+        $this->assertSame(1, $data['cells']['alice']['facility1:delete']);
+        $this->assertSame(1, $data['cells']['']['logged:show']);
+        $this->assertSame(1, $data['cells']['bob']['facility1:create']);
+        $this->assertArrayNotHasKey('facility1:create', $data['cells']['alice']);
+
+        $limited = $this->helper->getQuery()->auditmatrix(1);
+        $this->assertSame(['alice'], $limited['users']);
+        $this->assertSame(['logged:show'], $limited['actions']);
+    }
+
+    public function testAuditmatrixWithoutRows()
+    {
+        $this->helper->getDB()->exec('DELETE FROM audit');
+        $this->assertSame(['users' => [], 'actions' => [], 'cells' => []], $this->helper->getQuery()->auditmatrix());
     }
 
     public function testAuditfacilities()

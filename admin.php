@@ -2,6 +2,7 @@
 
 // phpcs:disable PSR1.Methods.CamelCapsMethodName.NotCamelCaps
 use dokuwiki\Extension\AdminPlugin;
+use dokuwiki\plugin\statistics\Query;
 use dokuwiki\plugin\statistics\SearchEngines;
 
 /**
@@ -26,7 +27,10 @@ class admin_plugin_statistics extends AdminPlugin
     protected const AUDIT_PAGE = 50;
 
     /** @var array audit log filters: facility, user, action, q */
-    protected $filters = ['facility' => '', 'user' => '', 'action' => '', 'q' => ''];
+    protected $filters = ['facility' => '', 'user' => '', 'action' => '', 'ip' => '', 'q' => ''];
+
+    /** @var array audit log filter => URL parameter */
+    protected const AUDIT_PARAMS = ['facility' => 'af', 'user' => 'au', 'action' => 'aa', 'ip' => 'ai', 'q' => 'aq'];
 
     /** @var helper_plugin_statistics */
     protected $hlp;
@@ -76,8 +80,10 @@ class admin_plugin_statistics extends AdminPlugin
         'audit' => [
             'auditdashboard' => 'printAuditDashboard',
             'auditlog' => 'printAuditLog',
-            'auditactions' => 'printTableAndPieGraph',
-            'auditusers' => 'printTableAndPieGraph',
+            'auditactions' => 'printAuditSummary',
+            'auditusers' => 'printAuditSummary',
+            'auditips' => 'printAuditSummary',
+            'auditmatrix' => 'printAuditMatrix',
         ],
     ];
 
@@ -139,12 +145,9 @@ class admin_plugin_statistics extends AdminPlugin
         if (!isset($this->allowedpages[$this->opt])) $this->opt = 'dashboard';
 
         $this->start = $INPUT->int('s');
-        $this->filters = [
-            'facility' => $INPUT->str('af'),
-            'user' => $INPUT->str('au'),
-            'action' => $INPUT->str('aa'),
-            'q' => $INPUT->str('aq'),
-        ];
+        foreach (self::AUDIT_PARAMS as $key => $param) {
+            $this->filters[$key] = $INPUT->str($param);
+        }
         $this->setTimeframe($INPUT->str('f', date('Y-m-d')), $INPUT->str('t', date('Y-m-d')));
     }
 
@@ -174,12 +177,25 @@ class admin_plugin_statistics extends AdminPlugin
             't' => $this->to,
         ];
         if ($this->opt === 'auditlog') {
-            $names = ['facility' => 'af', 'user' => 'au', 'action' => 'aa', 'q' => 'aq'];
-            foreach ($names as $key => $param) {
+            foreach (self::AUDIT_PARAMS as $key => $param) {
                 if ($this->filters[$key] !== '') $params[$param] = $this->filters[$key];
             }
         }
         return $params;
+    }
+
+    /**
+     * Link to the audit log with the given filters (URL parameter => value), keeping the timeframe
+     */
+    protected function auditLogLink(array $filters): string
+    {
+        return '?' . buildURLparams([
+            'do' => 'admin',
+            'page' => 'statistics',
+            'opt' => 'auditlog',
+            'f' => $this->from,
+            't' => $this->to,
+        ] + $filters);
     }
 
     /**
@@ -490,9 +506,19 @@ class admin_plugin_statistics extends AdminPlugin
         echo '</div>';
 
         $quicktables = [
-            ['lbl' => 'dash_audit_topactions', 'query' => 'auditactions', 'opt' => 'auditactions'],
-            ['lbl' => 'dash_audit_topusers', 'query' => 'auditusers', 'opt' => 'auditusers'],
-            ['lbl' => 'dash_audit_latest', 'query' => 'auditrecent', 'opt' => 'auditlog'],
+            [
+                'lbl' => 'dash_audit_topactions',
+                'query' => 'auditactions',
+                'opt' => 'auditactions',
+                'cols' => ['facility', 'auditaction', 'cnt'],
+            ],
+            [
+                'lbl' => 'dash_audit_topusers',
+                'query' => 'auditusers',
+                'opt' => 'auditusers',
+                'cols' => ['audituser', 'cnt'],
+            ],
+            ['lbl' => 'dash_audit_latest', 'query' => 'auditrecent', 'opt' => 'auditlog', 'cols' => null],
         ];
 
         $query = $this->hlp->getQuery();
@@ -509,10 +535,82 @@ class admin_plugin_statistics extends AdminPlugin
             echo '<div>';
             echo '<h2>' . $this->getLang($table['lbl']) . '</h2>';
             $result = array_slice(call_user_func([$query, $table['query']]), 0, 10);
+            if ($table['cols']) {
+                $result = array_map(static fn($row) => array_intersect_key($row, array_flip($table['cols'])), $result);
+            }
             $this->html_resulttable($result);
             echo '<p><a href="?' . buildURLparams($params) . '" class="more">' . $this->getLang('more') . '…</a></p>';
             echo '</div>';
         }
+    }
+
+    /**
+     * A per-action, per-user or per-ip summary: trend graph and a linked, paged table
+     */
+    public function printAuditSummary($name)
+    {
+        echo '<p>' . $this->getLang("intro_$name") . '</p>';
+        $this->html_graph($name, 700, 280);
+
+        $query = $this->hlp->getQuery();
+        $query->setPagination($this->start, self::AUDIT_PAGE);
+        $result = $query->$name();
+
+        if (!$result) {
+            echo '<p class="plg_stats_audit_empty">' . $this->getLang('audit_noentries') . '</p>';
+            return;
+        }
+
+        $headers = [];
+        foreach (array_keys($result[0]) as $column) {
+            $headers[] = $this->getLang('audit_col_' . preg_replace('/^audit/', '', $column));
+        }
+        $this->html_resulttable(array_slice($result, 0, self::AUDIT_PAGE), $headers);
+        $this->html_pager(self::AUDIT_PAGE, count($result) > self::AUDIT_PAGE);
+    }
+
+    /**
+     * Who did what: the busiest users against the busiest actions
+     */
+    public function printAuditMatrix()
+    {
+        echo '<p>' . $this->getLang('intro_auditmatrix') . '</p>';
+
+        $matrix = $this->hlp->getQuery()->auditmatrix();
+        if (!$matrix['users']) {
+            echo '<p class="plg_stats_audit_empty">' . $this->getLang('audit_noentries') . '</p>';
+            return;
+        }
+
+        echo '<table class="inline plg_stats_auditmatrix">';
+        echo '<tr><th>' . $this->getLang('audit_matrix_corner') . '</th>';
+        foreach ($matrix['actions'] as $action) {
+            echo '<th>' . hsc($action) . '</th>';
+        }
+        echo '</tr>';
+
+        foreach ($matrix['users'] as $user) {
+            echo '<tr>';
+            if ($user === '') {
+                echo '<th>' . hsc(Query::ANONYMOUS) . '</th>';
+            } else {
+                echo '<th><a href="' . $this->auditLogLink(['au' => $user]) . '">' . hsc($user) . '</a></th>';
+            }
+            foreach ($matrix['actions'] as $action) {
+                $cnt = $matrix['cells'][$user][$action] ?? 0;
+                echo '<td>';
+                if ($cnt && $user !== '') {
+                    [$facility, $act] = explode(':', $action, 2);
+                    $link = $this->auditLogLink(['au' => $user, 'af' => $facility, 'aa' => $act]);
+                    echo '<a href="' . $link . '">' . $cnt . '</a>';
+                } elseif ($cnt) {
+                    echo $cnt;
+                }
+                echo '</td>';
+            }
+            echo '</tr>';
+        }
+        echo '</table>';
     }
 
     /**
@@ -555,7 +653,7 @@ class admin_plugin_statistics extends AdminPlugin
         }
         echo '</select></label>';
 
-        foreach (['user' => 'au', 'action' => 'aa', 'q' => 'aq'] as $key => $param) {
+        foreach (['user' => 'au', 'action' => 'aa', 'ip' => 'ai', 'q' => 'aq'] as $key => $param) {
             echo '<label>' . $this->getLang('audit_filter_' . $key) . ' ';
             echo '<input type="text" name="' . $param . '" value="' . hsc($this->filters[$key]) . '" class="edit" />';
             echo '</label>';
@@ -679,6 +777,17 @@ class admin_plugin_statistics extends AdminPlugin
                     echo '<a href="' . $v . '" class="urlextern">';
                     echo $url;
                     echo '</a>';
+                } elseif ($k == 'audituser') {
+                    if ($v === Query::ANONYMOUS) {
+                        echo hsc($v);
+                    } else {
+                        echo '<a href="' . $this->auditLogLink(['au' => $v]) . '">' . hsc($v) . '</a>';
+                    }
+                } elseif ($k == 'auditaction') {
+                    $link = $this->auditLogLink(['af' => $row['facility'] ?? '', 'aa' => $v]);
+                    echo '<a href="' . $link . '">' . hsc($v) . '</a>';
+                } elseif ($k == 'auditip') {
+                    echo '<a href="' . $this->auditLogLink(['ai' => $v]) . '">' . hsc($v) . '</a>';
                 } elseif ($k == 'ilookup') {
                     echo '<a href="' . wl('', ['id' => $v, 'do' => 'search']) . '">Search</a>';
                 } elseif ($k == 'engine') {
