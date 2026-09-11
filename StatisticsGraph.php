@@ -321,6 +321,47 @@ class StatisticsGraph
     }
 
     /**
+     * Audit events over time, one line per facility
+     */
+    public function auditdashboard()
+    {
+        $hours = ($this->from == $this->to);
+        $result = $this->hlp->getQuery()->auditdashboard($hours);
+
+        $facilities = [];
+        foreach ($result as $row) {
+            foreach (array_keys($row) as $facility) {
+                $facilities[$facility] = true;
+            }
+        }
+        unset($facilities['other']);
+        $facilities = array_keys($facilities);
+        sort($facilities);
+        if (array_filter($result, static fn($row) => isset($row['other']))) {
+            $facilities[] = 'other';
+        }
+
+        $times = [];
+        $series = array_fill_keys($facilities, []);
+        foreach ($result as $time => $row) {
+            $times[] = $time . ($hours ? 'h' : '');
+            foreach ($facilities as $facility) {
+                $series[$facility][] = (int)($row[$facility] ?? 0);
+            }
+        }
+
+        $datasets = [];
+        foreach ($series as $facility => $data) {
+            $datasets[] = [
+                'label' => $facility === 'other' ? $this->hlp->getLang('graph_audit_other') : $facility,
+                'data' => $data,
+            ];
+        }
+
+        $this->printGraph('auditdashboard', 'line', ['datasets' => $datasets, 'labels' => $times]);
+    }
+
+    /**
      * @param string $name
      * @param string $type
      * @param array $data

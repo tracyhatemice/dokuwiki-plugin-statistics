@@ -858,5 +858,88 @@ class Query
         return array_column($rows, 'facility');
     }
 
+    /**
+     * Aggregated audit numbers for the audit dashboard
+     */
+    public function auditaggregate(): array
+    {
+        $sql = "SELECT COUNT(*) as events,
+                       COUNT(DISTINCT CASE WHEN A.user != '' THEN A.user END) as users,
+                       COUNT(DISTINCT CASE WHEN A.ip != '' THEN A.ip END) as ips,
+                       SUM(CASE WHEN A.user = '' THEN 1 ELSE 0 END) as anonymous,
+                       COUNT(DISTINCT A.facility) as facilities,
+                       DATETIME(MAX(A.dt), ?) as last
+                  FROM audit as A
+                 WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?)";
+        $row = $this->db->queryRecord($sql, [$this->tz, $this->from, $this->tzInv, $this->to, $this->tzInv]);
+
+        return [
+            'events' => (int)($row['events'] ?? 0),
+            'users' => (int)($row['users'] ?? 0),
+            'ips' => (int)($row['ips'] ?? 0),
+            'anonymous' => (int)($row['anonymous'] ?? 0),
+            'facilities' => (int)($row['facilities'] ?? 0),
+            'last' => (string)($row['last'] ?? ''),
+        ];
+    }
+
+    /**
+     * Audit events per time slot and facility, for the dashboard trend graph
+     *
+     * @param bool $hours Use hour resolution rather than days
+     * @param int $max Facilities to show individually, the rest is summed as 'other'
+     * @return array [time][facility] => count
+     */
+    public function auditdashboard(bool $hours = false, int $max = 5): array
+    {
+        if ($hours) {
+            $TIME = "strftime('%H', DATETIME(A.dt, '$this->tz'))";
+        } else {
+            $TIME = "DATE(DATETIME(A.dt, '$this->tz'))";
+        }
+        $params = [$this->from, $this->tzInv, $this->to, $this->tzInv];
+
+        // the busiest facilities keep their own line
+        $sql = "SELECT A.facility as facility, COUNT(*) as cnt
+                  FROM audit as A
+                 WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?)
+              GROUP BY A.facility
+              ORDER BY cnt DESC, facility ASC
+                 LIMIT " . (int)$max;
+        $top = array_column($this->db->queryAll($sql, $params), 'facility');
+
+        $sql = "SELECT $TIME as time,
+                       A.facility as facility,
+                       COUNT(*) as cnt
+                  FROM audit as A
+                 WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?)
+              GROUP BY time, A.facility
+              ORDER BY time";
+        $data = [];
+        foreach ($this->db->queryAll($sql, $params) as $row) {
+            $key = in_array($row['facility'], $top, true) ? $row['facility'] : 'other';
+            $data[$row['time']][$key] = ($data[$row['time']][$key] ?? 0) + (int)$row['cnt'];
+        }
+        ksort($data);
+        return $data;
+    }
+
+    /**
+     * The most recent audit events, in a compact column set for the dashboard
+     */
+    public function auditrecent(int $limit = 10): array
+    {
+        $sql = "SELECT DATETIME(A.dt, ?) as time,
+                       A.facility as facility,
+                       A.user as user,
+                       A.action as action,
+                       A.subject as subject
+                  FROM audit as A
+                 WHERE A.dt >= DATETIME(?, ?) AND A.dt <= DATETIME(?, ?)
+              ORDER BY A.dt DESC, A.id DESC
+                 LIMIT " . (int)$limit;
+        return $this->db->queryAll($sql, [$this->tz, $this->from, $this->tzInv, $this->to, $this->tzInv]);
+    }
+
     // endregion
 }
