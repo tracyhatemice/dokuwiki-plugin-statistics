@@ -60,6 +60,7 @@ $lang['campaign']              = '(Campaigns)';
 $lang['search']                = '(Search)';
 $lang['technology']            = '(Technology)';
 $lang['audit']                 = '(Audit)';
+$lang['auditdashboard']        = 'Audit Dashboard';
 $lang['auditlog']              = 'Audit Log';
 $lang['auditactions']          = 'Audit Events by Action';
 $lang['auditusers']            = 'Audit Events by User';
@@ -94,9 +95,22 @@ $lang['intro_topgroupedit']          = 'These are the groups of the logged in us
 $lang['intro_campaigns']             = 'This shows the number of visits you received through a tracked campaign.';
 $lang['intro_medium']                = 'This shows the number of visits you received via a specific medium of a tracked campaign, e.g. email, social media, etc.';
 $lang['intro_source']                = 'This shows the number of visits you received via a specific source of a tracked campaign, e.g. newsletter, Facebook, etc.';
+$lang['intro_auditdashboard']        = 'Overview of the audit events captured in the selected timeframe. Pick a page from the Audit section for details.';
 $lang['intro_auditlog']              = 'Events captured from the configured logger facilities in the selected timeframe, newest first. Use the filters to narrow the list; the free text filter matches the subject and the message.';
 $lang['intro_auditactions']          = 'How often each audit action was recorded in the selected timeframe, grouped by facility and action.';
 $lang['intro_auditusers']            = 'Which users caused the most audit events in the selected timeframe.';
+
+// audit dashboard
+$lang['dash_audit_events']     = '<strong>%d</strong> Audit Events';
+$lang['dash_audit_users']      = '<strong>%d</strong> Distinct Users';
+$lang['dash_audit_ips']        = '<strong>%d</strong> Distinct IP Addresses';
+$lang['dash_audit_anonymous']  = '<strong>%d</strong> Anonymous Events';
+$lang['dash_audit_facilities'] = '<strong>%d</strong> Facilities';
+$lang['dash_audit_last']       = '<strong>%s</strong> Last Event';
+$lang['dash_audit_topactions'] = 'Top Audit Actions';
+$lang['dash_audit_topusers']   = 'Top Audit Users';
+$lang['dash_audit_latest']     = 'Latest Audit Events';
+$lang['graph_audit_other']     = 'other';
 
 // audit log page
 $lang['audit_filter_facility'] = 'Facility';

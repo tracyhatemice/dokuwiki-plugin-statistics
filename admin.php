@@ -74,6 +74,7 @@ class admin_plugin_statistics extends AdminPlugin
             'viewport' => 'printTableAndScatterGraph',
         ],
         'audit' => [
+            'auditdashboard' => 'printAuditDashboard',
             'auditlog' => 'printAuditLog',
             'auditactions' => 'printTableAndPieGraph',
             'auditusers' => 'printTableAndPieGraph',
@@ -459,6 +460,59 @@ class admin_plugin_statistics extends AdminPlugin
 
         $result = $this->hlp->getQuery()->referer();
         $this->html_resulttable($result, '', 150);
+    }
+
+    /**
+     * Overview of the audit events: counters, trend graph and quick tables
+     */
+    public function printAuditDashboard()
+    {
+        echo '<p>' . $this->getLang('intro_auditdashboard') . '</p>';
+
+        echo '<div class="plg_stats_top">';
+        $result = $this->hlp->getQuery()->auditaggregate();
+
+        echo '<ul>';
+        foreach (['events', 'users', 'ips'] as $name) {
+            $text = sprintf($this->getLang('dash_audit_' . $name), $result[$name]);
+            echo '<li><div class="li">' . $text . '</div></li>';
+        }
+        echo '</ul>';
+
+        echo '<ul>';
+        foreach (['anonymous', 'facilities', 'last'] as $name) {
+            $text = sprintf($this->getLang('dash_audit_' . $name), $result[$name]);
+            echo '<li><div class="li">' . $text . '</div></li>';
+        }
+        echo '</ul>';
+
+        $this->html_graph('auditdashboard', 700, 280);
+        echo '</div>';
+
+        $quicktables = [
+            ['lbl' => 'dash_audit_topactions', 'query' => 'auditactions', 'opt' => 'auditactions'],
+            ['lbl' => 'dash_audit_topusers', 'query' => 'auditusers', 'opt' => 'auditusers'],
+            ['lbl' => 'dash_audit_latest', 'query' => 'auditrecent', 'opt' => 'auditlog'],
+        ];
+
+        $query = $this->hlp->getQuery();
+        $query->setPagination(0, 10);
+        foreach ($quicktables as $table) {
+            $params = [
+                'do' => 'admin',
+                'page' => 'statistics',
+                'f' => $this->from,
+                't' => $this->to,
+                'opt' => $table['opt'],
+            ];
+
+            echo '<div>';
+            echo '<h2>' . $this->getLang($table['lbl']) . '</h2>';
+            $result = array_slice(call_user_func([$query, $table['query']]), 0, 10);
+            $this->html_resulttable($result);
+            echo '<p><a href="?' . buildURLparams($params) . '" class="more">' . $this->getLang('more') . '…</a></p>';
+            echo '</div>';
+        }
     }
 
     /**

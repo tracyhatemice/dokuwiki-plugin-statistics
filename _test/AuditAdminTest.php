@@ -101,6 +101,7 @@ class AuditAdminTest extends DokuWikiTest
         $this->loginAs('adminuser', ['admin']);
 
         $links = implode("\n", $this->tocLinks());
+        $this->assertStringContainsString('opt=auditdashboard', $links);
         $this->assertStringContainsString('opt=auditlog', $links);
         $this->assertStringContainsString('opt=auditactions', $links);
         $this->assertStringContainsString('opt=auditusers', $links);
@@ -173,5 +174,22 @@ class AuditAdminTest extends DokuWikiTest
 
         $html = $this->render(['opt' => 'auditusers']);
         $this->assertStringContainsString('(anonymous)', $html);
+    }
+
+    public function testAuditDashboardRenders()
+    {
+        $this->loginAs('adminuser', ['admin']);
+
+        $html = $this->render(['opt' => 'auditdashboard']);
+
+        $this->assertStringContainsString('plg_stats_auditdashboard', $html);
+        $this->assertStringContainsString('<strong>2</strong> Audit Events', $html);
+        $this->assertStringContainsString('<strong>1</strong> Distinct Users', $html);
+        $this->assertStringContainsString('<strong>1</strong> Anonymous Events', $html);
+        $this->assertStringContainsString('name="auditdashboard"', $html, 'trend chart is rendered');
+        $this->assertStringContainsString('facility1:delete', $html, 'top actions table');
+        $this->assertStringContainsString('(anonymous)', $html, 'top users table');
+        $this->assertStringContainsString('item&lt;1&gt;', $html, 'latest events table');
+        $this->assertStringContainsString('opt=auditlog', $html, 'more link to the log');
     }
 }

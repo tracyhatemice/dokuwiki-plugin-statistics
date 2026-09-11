@@ -110,4 +110,65 @@ class AuditQueryTest extends DokuWikiTest
     {
         $this->assertSame(['facility1', 'logged'], $this->helper->getQuery()->auditfacilities());
     }
+
+    public function testAuditaggregate()
+    {
+        $data = $this->helper->getQuery()->auditaggregate();
+
+        $this->assertSame(4, $data['events']);
+        $this->assertSame(2, $data['users'], 'alice and bob, anonymous not counted');
+        $this->assertSame(0, $data['ips'], 'empty ips are not counted');
+        $this->assertSame(1, $data['anonymous']);
+        $this->assertSame(2, $data['facilities']);
+        $this->assertMatchesRegularExpression('/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/', $data['last']);
+    }
+
+    public function testAuditaggregateWithoutRows()
+    {
+        $this->helper->getDB()->exec('DELETE FROM audit');
+        $data = $this->helper->getQuery()->auditaggregate();
+
+        $this->assertSame(
+            ['events' => 0, 'users' => 0, 'ips' => 0, 'anonymous' => 0, 'facilities' => 0, 'last' => ''],
+            $data
+        );
+    }
+
+    public function testAuditdashboardByDay()
+    {
+        $data = $this->helper->getQuery()->auditdashboard(false);
+
+        $this->assertCount(1, $data);
+        $this->assertSame(date('Y-m-d'), array_key_first($data));
+        $this->assertSame(['facility1' => 2, 'logged' => 2], $data[date('Y-m-d')]);
+    }
+
+    public function testAuditdashboardByHourSumsToAllEvents()
+    {
+        $data = $this->helper->getQuery()->auditdashboard(true);
+
+        $total = 0;
+        foreach ($data as $hour => $row) {
+            $this->assertMatchesRegularExpression('/^\d\d$/', $hour);
+            $total += array_sum($row);
+        }
+        $this->assertSame(4, $total);
+    }
+
+    public function testAuditdashboardSumsFacilitiesBeyondMaxAsOther()
+    {
+        $data = $this->helper->getQuery()->auditdashboard(false, 1);
+
+        // facility1 and logged tie on count, the alphabetically first one is kept
+        $this->assertSame(['facility1' => 2, 'other' => 2], $data[date('Y-m-d')]);
+    }
+
+    public function testAuditrecent()
+    {
+        $rows = $this->helper->getQuery()->auditrecent(2);
+
+        $this->assertCount(2, $rows);
+        $this->assertSame(['time', 'facility', 'user', 'action', 'subject'], array_keys($rows[0]));
+        $this->assertSame(['wiki:syntax', 'wiki:100%done'], array_column($rows, 'subject'));
+    }
 }
